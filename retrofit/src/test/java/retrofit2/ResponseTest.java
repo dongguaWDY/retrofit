@@ -77,6 +77,17 @@ public final class ResponseTest {
     }
   }
 
+  @Test public void successWithStatusCode() {
+    Object body = new Object();
+    Response<Object> response = Response.success(204, body);
+    assertThat(response.code()).isEqualTo(204);
+    assertThat(response.message()).isEqualTo("Response.success()");
+    assertThat(response.headers().size()).isZero();
+    assertThat(response.isSuccessful()).isTrue();
+    assertThat(response.body()).isSameAs(body);
+    assertThat(response.errorBody()).isNull();
+  }
+
   @Test public void successWithRawResponse() {
     Object body = new Object();
     Response<Object> response = Response.success(body, successResponse);
@@ -112,7 +123,7 @@ public final class ResponseTest {
     Response<?> response = Response.error(400, errorBody);
     assertThat(response.raw()).isNotNull();
     assertThat(response.code()).isEqualTo(400);
-    assertThat(response.message()).isNull();
+    assertThat(response.message()).isEqualTo("Response.error()");
     assertThat(response.headers().size()).isZero();
     assertThat(response.isSuccessful()).isFalse();
     assertThat(response.body()).isNull();

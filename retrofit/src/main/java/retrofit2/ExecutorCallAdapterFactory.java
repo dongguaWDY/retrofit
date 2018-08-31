@@ -21,6 +21,8 @@ import java.lang.reflect.Type;
 import java.util.concurrent.Executor;
 import okhttp3.Request;
 
+import static retrofit2.Utils.checkNotNull;
+
 final class ExecutorCallAdapterFactory extends CallAdapter.Factory {
   final Executor callbackExecutor;
 
@@ -29,17 +31,17 @@ final class ExecutorCallAdapterFactory extends CallAdapter.Factory {
   }
 
   @Override
-  public CallAdapter<Call<?>> get(Type returnType, Annotation[] annotations, Retrofit retrofit) {
+  public CallAdapter<?, ?> get(Type returnType, Annotation[] annotations, Retrofit retrofit) {
     if (getRawType(returnType) != Call.class) {
       return null;
     }
     final Type responseType = Utils.getCallResponseType(returnType);
-    return new CallAdapter<Call<?>>() {
+    return new CallAdapter<Object, Call<?>>() {
       @Override public Type responseType() {
         return responseType;
       }
 
-      @Override public <R> Call<R> adapt(Call<R> call) {
+      @Override public Call<Object> adapt(Call<Object> call) {
         return new ExecutorCallbackCall<>(callbackExecutor, call);
       }
     };
@@ -55,7 +57,7 @@ final class ExecutorCallAdapterFactory extends CallAdapter.Factory {
     }
 
     @Override public void enqueue(final Callback<T> callback) {
-      if (callback == null) throw new NullPointerException("callback == null");
+      checkNotNull(callback, "callback == null");
 
       delegate.enqueue(new Callback<T>() {
         @Override public void onResponse(Call<T> call, final Response<T> response) {

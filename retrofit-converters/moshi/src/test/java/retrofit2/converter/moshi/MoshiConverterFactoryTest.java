@@ -17,6 +17,7 @@ package retrofit2.converter.moshi;
 
 import com.squareup.moshi.FromJson;
 import com.squareup.moshi.JsonAdapter;
+import com.squareup.moshi.JsonDataException;
 import com.squareup.moshi.JsonQualifier;
 import com.squareup.moshi.JsonReader;
 import com.squareup.moshi.JsonWriter;
@@ -40,6 +41,7 @@ import retrofit2.Call;
 import retrofit2.Response;
 import retrofit2.Retrofit;
 import retrofit2.http.Body;
+import retrofit2.http.GET;
 import retrofit2.http.POST;
 
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
@@ -68,6 +70,14 @@ public final class MoshiConverterFactoryTest {
 
     @Override public String getName() {
       return theName;
+    }
+  }
+
+  static final class Value {
+    final String theName;
+
+    Value(String theName) {
+      this.theName = theName;
     }
   }
 
@@ -105,11 +115,19 @@ public final class MoshiConverterFactoryTest {
       }
       throw new AssertionError("Found: " + string);
     }
+
+    @FromJson public Value readWithoutEndingObject(JsonReader reader) throws IOException {
+      reader.beginObject();
+      reader.nextName();
+      String theName = reader.nextString();
+      return new Value(theName);
+    }
   }
 
   interface Service {
     @POST("/") Call<AnImplementation> anImplementation(@Body AnImplementation impl);
     @POST("/") Call<AnInterface> anInterface(@Body AnInterface impl);
+    @GET("/") Call<Value> value();
 
     @POST("/") @Qualifier @NonQualifer //
     Call<String> annotations(@Body @Qualifier @NonQualifer String body);
@@ -119,6 +137,8 @@ public final class MoshiConverterFactoryTest {
 
   private Service service;
   private Service serviceLenient;
+  private Service serviceNulls;
+  private Service serviceFailOnUnknown;
 
   @Before public void setUp() {
     Moshi moshi = new Moshi.Builder()
@@ -137,6 +157,8 @@ public final class MoshiConverterFactoryTest {
         .build();
     MoshiConverterFactory factory = MoshiConverterFactory.create(moshi);
     MoshiConverterFactory factoryLenient = factory.asLenient();
+    MoshiConverterFactory factoryNulls = factory.withNullSerialization();
+    MoshiConverterFactory factoryFailOnUnknown = factory.failOnUnknown();
     Retrofit retrofit = new Retrofit.Builder()
         .baseUrl(server.url("/"))
         .addConverterFactory(factory)
@@ -145,8 +167,18 @@ public final class MoshiConverterFactoryTest {
         .baseUrl(server.url("/"))
         .addConverterFactory(factoryLenient)
         .build();
+    Retrofit retrofitNulls = new Retrofit.Builder()
+        .baseUrl(server.url("/"))
+        .addConverterFactory(factoryNulls)
+        .build();
+    Retrofit retrofitFailOnUnknown = new Retrofit.Builder()
+        .baseUrl(server.url("/"))
+        .addConverterFactory(factoryFailOnUnknown)
+        .build();
     service = retrofit.create(Service.class);
     serviceLenient = retrofitLenient.create(Service.class);
+    serviceNulls = retrofitNulls.create(Service.class);
+    serviceFailOnUnknown = retrofitFailOnUnknown.create(Service.class);
   }
 
   @Test public void anInterface() throws IOException, InterruptedException {
@@ -207,6 +239,26 @@ public final class MoshiConverterFactoryTest {
     assertThat(body.theName).isEqualTo("value");
   }
 
+  @Test public void withNulls() throws IOException, InterruptedException {
+    server.enqueue(new MockResponse().setBody("{}"));
+
+    Call<AnImplementation> call = serviceNulls.anImplementation(new AnImplementation(null));
+    call.execute();
+    assertEquals("{\"theName\":null}", server.takeRequest().getBody().readUtf8());
+  }
+
+  @Test public void failOnUnknown() throws IOException, InterruptedException {
+    server.enqueue(new MockResponse().setBody("{\"taco\":\"delicious\"}"));
+
+    Call<AnImplementation> call = serviceFailOnUnknown.anImplementation(new AnImplementation(null));
+    try {
+      call.execute();
+      fail();
+    } catch (JsonDataException e) {
+      assertThat(e).hasMessage("Cannot skip unexpected STRING at $.taco");
+    }
+  }
+
   @Test public void utf8BomSkipped() throws IOException {
     Buffer responseBody = new Buffer()
         .write(ByteString.decodeHex("EFBBBF"))
@@ -232,6 +284,18 @@ public final class MoshiConverterFactoryTest {
       call.execute();
       fail();
     } catch (IOException expected) {
+    }
+  }
+
+  @Test public void requireFullResponseDocumentConsumption() throws Exception {
+    server.enqueue(new MockResponse().setBody("{\"theName\":\"value\"}"));
+
+    Call<Value> call = service.value();
+    try {
+      call.execute();
+      fail();
+    } catch (JsonDataException e) {
+      assertThat(e).hasMessage("JSON document was not fully consumed.");
     }
   }
 }
